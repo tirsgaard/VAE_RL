@@ -4,6 +4,7 @@
 Created on Fri Feb 21 00:48:30 2020
 
 @author: tirsgaard
+# This is still outdated compared to the DDQN.py
 """
 
 import math, random
