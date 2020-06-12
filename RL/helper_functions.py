@@ -35,19 +35,17 @@ def phi_transformer(S, n_phi, im_size=[84,84], n_channels = 1):
     S = (255*S).astype("uint8")
     return S
 
-
-
-
-
 class Replay_buffer:
     # Class for storing replay information
     # Beacuse of atari wrapper we store in tensorflow formaet i.e (H,W,K)
-    def __init__(self, n_stored, S_size, n_phi, S_dtype="uint8", save_type="lazy_frames"):
+    def __init__(self, n_stored, S_size, n_phi, S_dtype="uint8", save_type="lazy_frames", cahce=True):
+        self.cache = cahce
         self.save_type = save_type
         self.counter = 0
         self.max_capacity = n_stored
         self.S_size = S_size
         self.n_phi = n_phi
+        self.oldest_index = 0
         out_size = (self.max_capacity,) + (self.S_size) + (self.n_phi,)      
         
         if (save_type=="lazy_frames"): # Use lazy frames to save memory
@@ -55,29 +53,34 @@ class Replay_buffer:
             self.S_array_next = np.zeros(self.max_capacity, dtype="object")
             
         elif (save_type=="disk"):
-            filename1 = '../../cache_hdd/newfile3.dat' # path.join(mkdtemp(), '~/cache_hdd/newfile1.dat')
-            filename2 = '../../cache_hdd/newfile4.dat' #path.join(mkdtemp(), '~/cache_hdd/newfile2.dat')
+            filename1 = '../../SSD_cache/newfile1.dat' # path.join(mkdtemp(), '~/cache_hdd/newfile1.dat')
+            filename2 = '../../SSD_cache/newfile2.dat'
             self.S_array = np.memmap(filename1, dtype=S_dtype, mode='w+', shape=out_size)
             self.S_array_next = np.memmap(filename2, dtype=S_dtype, mode='w+', shape=out_size)
-            
-            # Cache lists for storing data until batch should be returned
-            self.counter_cache = np.zeros(self.max_capacity)
-            self.counter_list = []
-            self.a_list = []
-            self.r_list = []
-            self.done_list = []
-            self.S_list = []
-            self.S_next_list = []
+            if self.cache:
+                # Cache lists for storing data until batch should be returned
+                self.counter_cache = np.zeros(self.max_capacity) # For storing which elements are cahced
+                self.counter_list = [] # For keeping track of cached elements
+                # The rest is for storing the replays
+                self.a_list = []
+                self.r_list = []
+                self.done_list = []
+                self.S_list = []
+                self.S_next_list = []
             
         else:
-            self.S_array = np.zeros(out_size, dtype=S_dtype)
-            self.S_array_next = np.zeros(out_size, dtype=S_dtype)
+            self.S_array = np.zeros(out_size, dtype = S_dtype)
+            self.S_array_next = np.zeros(out_size, dtype = S_dtype)
             
-        self.a_array = np.zeros(n_stored, dtype="int")
+        self.a_array = np.zeros(n_stored, dtype ="int")
         self.r_array = np.zeros(n_stored, dtype = "double")
         self.done_array = np.zeros(n_stored, dtype = "bool")
         self.S_dtype = S_dtype
         
+    def get_oldest_index(self):
+        index = self.oldest_index
+        self.oldest_index = (self.oldest_index+1) % self.max_capacity
+        return index
         
     def flush_cache(self):
         ### Flush elements stored in cache into harddrive stored array
@@ -103,6 +106,7 @@ class Replay_buffer:
         ###    ~110 parameter update for a cache size of 10**6, after replay arrays are filled
         if (len(self.counter_list) > 10**5):
             # This should NEVER happen in reality, chance is too low
+            assert (len(self.counter_list) > 10**5)
             return True
         
         return (sum(self.counter_cache[indexes])  >  0)
@@ -112,7 +116,7 @@ class Replay_buffer:
         
         # note what element has been cached
         self.counter_cache[index] = 1
-        self.counter_list.append(index)
+        self.counter_list.append(index) # this is for resetting counter_cache
         
         # Add replay to caches
         self.a_list.append(replay[1])
@@ -130,17 +134,16 @@ class Replay_buffer:
             self.counter += 1
         else:
             # Case where a replay has to be supstituted
-            index = np.random.randint(self.counter)
+            index = self.get_oldest_index()
             
         ## Save replay to disk
-        if (self.save_type=="disk"):
+        if ((self.save_type=="disk") & (self.cache)):
             # Instead cache replay
             self.cache_replay(replay, index)
             return
-            
+        
+        # This is a one-line, since it is stored on a disk
         self.S_array[index], self.S_array_next[index] = replay[0], replay[3]
-        
-        
         self.a_array[index] = replay[1]
         self.r_array[index] = replay[2]
         self.done_array[index] = replay[4]
@@ -149,7 +152,7 @@ class Replay_buffer:
         # Get index for batch
         indexes = np.random.randint(self.counter, size=batch_size)
         
-        if (self.save_type=="disk"):
+        if ((self.save_type=="disk") & (self.cache)):
             # Check if cache should be flushed
             if self.should_flush(indexes):
                 self.flush_cache()
