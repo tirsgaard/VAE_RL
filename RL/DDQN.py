@@ -41,7 +41,6 @@ writer = SummaryWriter()
 
 def compute_td_loss(batch_size, iter_number):
     S, a, r, S_next, done = replay_buffer.return_batch(batch_size)
-
     S      = Variable(torch.FloatTensor(np.float32(S)))
     S_next = Variable(torch.FloatTensor(np.float32(S_next)))
     a      = Variable(torch.LongTensor(a))
@@ -104,8 +103,8 @@ env_id = "SpaceInvaders-v0"
 #env_id = "Riverraid-v0"
 env = gym.make(env_id)
 env = wrap_deepmind(env, clip_rewards=False, frame_stack=True, episode_life=True) # We clip rewards in loss calculation
+env = SkipFramesEnv(env)
 n_phi = 4 # number of frames to stack
-env = SkipFramesEnv(env, skip=n_phi)
 im_dim = (84,84)
 Q_train = CnnDQN((n_phi, 84, 84), env.action_space.n)
 Q_target = CnnDQN((n_phi, 84, 84), env.action_space.n)
@@ -124,9 +123,9 @@ save_freq = 10**5
 tensorboard_update_freq = 100
 
 ## Runtime hyperparamters
+notes = "hdd run without cache" # If anything should be noted in tensorboard
 replay_initial = 50000
 replay_buffer_size = 10**6
-replay_buffer = Replay_buffer(replay_buffer_size, im_dim, n_phi, save_type="disk")
 
 epsilon_start = 1.0
 epsilon_final = 0.01
@@ -153,7 +152,8 @@ writer.add_text("Batch size", str(batch_size))
 writer.add_text("Learning rate", str(lr_rate))
 writer.add_text("Frames skip", str(4))
 writer.add_text("Type", "DDQN")
-
+writer.add_text("Notes", notes)
+replay_buffer = Replay_buffer(replay_buffer_size, im_dim, n_phi, save_type="disk", cahce=False)
 
 
 while n_frames<final_frame:
