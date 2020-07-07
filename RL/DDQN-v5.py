@@ -264,5 +264,6 @@ while n_frames<final_frame:
             replay_buffer.save_buffer()
             with open(back_up_path+'objs.pkl', 'wb') as f:
                 pickle.dump([n_frames], f)
-            
+            # Stop program
+            break
             
