@@ -55,7 +55,7 @@ class Replay_buffer:
             
         elif (save_type=="disk"):
             if self.save_location == None:
-                self.save_location = '../../SSD_cache/S_array1.npy'
+                self.save_location = 'self.save_location+"S_array1.npy"'
             # Check if replay exists
             if not resume:
                 self.S_array = np.lib.format.open_memmap(self.save_location+"S_array1.npy", dtype=S_dtype, mode='w+', shape=out_size)
