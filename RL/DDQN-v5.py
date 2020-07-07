@@ -265,5 +265,6 @@ while n_frames<final_frame:
             with open(back_up_path+'objs.pkl', 'wb') as f:
                 pickle.dump([n_frames], f)
             # Stop program
+            print("Program stopped")
             break
             
