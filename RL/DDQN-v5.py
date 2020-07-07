@@ -27,8 +27,6 @@ import glob
 import pickle
 import os
 cv2.ocl.setUseOpenCL(False)
-
-from IPython.display import clear_output
 import matplotlib.pyplot as plt
 from helper_functions_new import Replay_buffer, phi_transformer
 #from baseline.baselines.baselines.common.atari_wrappers import wrap_deepmind
