@@ -55,7 +55,7 @@ class Replay_buffer:
             
         elif (save_type=="disk"):
             if self.save_location == None:
-                self.save_location = self.save_location+"S_array1.npy"
+                self.save_location = "backup/"+"S_array1.npy"
             # Check if replay exists
             if not resume:
                 self.S_array = np.lib.format.open_memmap(self.save_location+"S_array1.npy", dtype=S_dtype, mode='w+', shape=out_size)
@@ -113,7 +113,7 @@ class Replay_buffer:
         ### Flush elements stored in cache into harddrive stored array
         # Check if cache is empty
         if len(self.counter_list) == 0:
-          return
+            return
 
         # Insert stored elements into correct arrays
         self.S_array[self.counter_list], self.S_array[np.array(self.counter_list)+1] = self.S_list, self.S_next_list
