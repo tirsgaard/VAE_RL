@@ -9,7 +9,7 @@ conda activate DDQN
 ```
 Then install pytorch:
 ```
-pip install torch==1.4.0+cu100 torchvision==0.4.0 -f https://download.pytorch.org/whl/torch_stable.html
+pip install torch==1.4.0+cu100 torchvision==0.4.0+6b959ee -f https://download.pytorch.org/whl/torch_stable.html
 ```
 
 Then install the pip packs with:
