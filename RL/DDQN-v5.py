@@ -261,7 +261,7 @@ while n_frames<final_frame:
             # Save everything
             torch.save(Q_target.state_dict(), back_up_path + "Q_target")
             torch.save(Q_train.state_dict(), back_up_path + "Q_train")
-            replay_buffer.save_buffer(back_up_path+"arrays.npy")
+            replay_buffer.save_buffer()
             with open(back_up_path+'objs.pkl', 'wb') as f:
                 pickle.dump([n_frames], f)
             
