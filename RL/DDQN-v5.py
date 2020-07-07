@@ -22,20 +22,25 @@ from collections import deque
 import gym
 from gym import spaces
 import cv2
+from time import time
+import glob
+import pickle
+import os
 cv2.ocl.setUseOpenCL(False)
 
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
-from helper_functions import Replay_buffer, phi_transformer
+from helper_functions_new import Replay_buffer, phi_transformer
 #from baseline.baselines.baselines.common.atari_wrappers import wrap_deepmind
-from stable_baselines.common.atari_wrappers import wrap_deepmind
-from DQN_model import CnnDQN
+from stable_baselines.common.atari_wrappers import wrap_deepmind, make_atari
+from DQN_model import CnnDDQN
+
 USE_CUDA = torch.cuda.is_available()
 if USE_CUDA:
     torch.backends.cudnn.benchmark=True
 Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() if USE_CUDA else autograd.Variable(*args, **kwargs)
 
-writer = SummaryWriter()
+
 
 
 
@@ -57,24 +62,42 @@ def compute_td_loss(batch_size, iter_number):
     q_pred = Q_train(S)
     q_pred = q_pred.gather(1, a.unsqueeze(1)).squeeze(1)#q_val[range(batch_size),a]
     
-    #writer.add_histogram('Predicted Q-values', q_pred, iter_number)
-    #writer.add_histogram('Target Q-values', q_val_target, iter_number)
-    loss = (q_pred - Variable(q_val_target.data)).pow(2).mean()
-        
+    #loss = (q_pred - Variable(q_val_target.data)).pow(2).mean()
+    loss_func = nn.SmoothL1Loss()
+    loss = loss_func(q_pred, q_val_target)
     optimizer.zero_grad()
     loss.backward()
-    for param in Q_train.parameters():
-                param.grad.data.clamp_(-1, 1)
+    #for param in Q_train.parameters():
+    #            param.grad.data.clamp_(-1, 1)
     optimizer.step()
     
     return loss
 
 # Wrapper to easy implement frame skip in envirenment
-class SkipFramesEnv(gym.Wrapper):
+class MaxEnv(gym.Wrapper):
     def __init__(self, env, skip=4):
         """Return only every `skip`-th frame"""
         gym.Wrapper.__init__(self, env)
-        self._skip       = skip
+        self._skip = skip
+    def step(self, action):
+        """Repeat action, sum reward, and max over last observations."""
+        self.obs, reward, done, info = self.env.step(action)
+        self.old_obs = self.obs # we store old obs to max_pool
+        
+        # Max pool frames
+        obs = np.maximum(self.obs, self.old_obs)
+        return obs, reward, done, info
+
+    def reset(self, **kwargs):
+        self.old_frame = self.env.reset(**kwargs)
+        return self.old_frame
+    
+    
+class SkipEnv(gym.Wrapper):
+    def __init__(self, env, skip=4):
+        """Return only every `skip`-th frame"""
+        gym.Wrapper.__init__(self, env)
+        self._skip = skip
     def step(self, action):
         """Repeat action, sum reward, and max over last observations."""
         total_reward = 0.0
@@ -83,13 +106,11 @@ class SkipFramesEnv(gym.Wrapper):
             total_reward += reward
             if done:
                 break
-        # Note that the observation on the done=True frame
-        # doesn't matter
-
         return obs, total_reward, done, info
 
     def reset(self, **kwargs):
-        return self.env.reset(**kwargs)
+        obs = self.env.reset(**kwargs)
+        return obs
 
 epsilon_by_frame = lambda n_frames: epsilon_final + (epsilon_start - epsilon_final) * math.exp(-1. * n_frames / epsilon_decay)
 
@@ -99,31 +120,38 @@ if not os.path.exists('models'):
     os.makedirs('models')
 
 #env = gym.make("PongNoFrameskip-v4")
-env_id = "SpaceInvaders-v0"
+env_id = "Riverraid-v0"
 #env_id = "Riverraid-v0"
 env = gym.make(env_id)
-env = wrap_deepmind(env, clip_rewards=False, frame_stack=True, episode_life=True) # We clip rewards in loss calculation
-env = SkipFramesEnv(env)
+env = MaxEnv(env)
+env = wrap_deepmind(env, clip_rewards=False, frame_stack=True, episode_life=True)# We clip rewards in loss calculation
+env = SkipEnv(env) 
+
 n_phi = 4 # number of frames to stack
 im_dim = (84,84)
-Q_train = CnnDQN((n_phi, 84, 84), env.action_space.n)
-Q_target = CnnDQN((n_phi, 84, 84), env.action_space.n)
+Q_train = CnnDDQN((n_phi, 84, 84), env.action_space.n)
+Q_target = CnnDDQN((n_phi, 84, 84), env.action_space.n, prov_bias = Q_train.return_bias()) # Share bias
 Q_target.load_state_dict(Q_train.state_dict())
 
 if USE_CUDA:
     Q_train = Q_train.cuda()
     Q_target = Q_target.cuda()
-#optimizer = optim.Adam(Q_train.parameters(), lr=0.0000025)
 
-lr_rate = 0.00025
-optimizer = optim.RMSprop(Q_train.parameters(), lr = lr_rate, alpha=0.95, momentum = 0, eps = 0.01)
+
+#lr_rate = 0.00025
+lr_rate = 0.0000625
+#optimizer = optim.RMSprop(Q_train.parameters(), lr = lr_rate, alpha=0.95, momentum = 0, eps = 0.01)
+optimizer = optim.Adam(Q_train.parameters(), lr=lr_rate)
 ## Saving parameters
 save_path = "models/DQN_"+env_id
+back_up_path = "backup/DQN_"+env_id+"/"
 save_freq = 10**5
 tensorboard_update_freq = 100
+resume = False
+runtime = 600 # in seconds
 
 ## Runtime hyperparamters
-notes = "hdd run without cache" # If anything should be noted in tensorboard
+notes = "Final run MontezumaRevenge-v0" # If anything should be noted in tensorboard
 replay_initial = 50000
 replay_buffer_size = 10**6
 
@@ -135,34 +163,59 @@ final_frame = 10**9
 batch_size = 32
 gamma      = 0.99
 ## Update parameters
-update_freq = 4*n_phi
-target_update_freq = 30000
+update_freq = 4
+target_update_freq = 3*10**4 # following Double Q-learing
 
 episode_reward = 0
 episode_index = 0
 par_updates = 0
 n_frames = 0
 loss_list = []
+fps_list = []
 episode_reward = 0
+start_time = time()
 
-## Add hyper parameters to tensorboard
-writer.add_text("Environment", str(env_id))
-writer.add_text("Buffer size", str(replay_buffer_size))
-writer.add_text("Batch size", str(batch_size))
-writer.add_text("Learning rate", str(lr_rate))
-writer.add_text("Frames skip", str(4))
-writer.add_text("Type", "DDQN")
-writer.add_text("Notes", notes)
-replay_buffer = Replay_buffer(replay_buffer_size, im_dim, n_phi, save_type="disk", cahce=False)
+if resume:
+    ## Loading newest tensorboard
+    list_of_files = glob.glob('runs/*')
+    latest_file = max(list_of_files, key=os.path.getctime)
+    writer = SummaryWriter(latest_file)
+    
+    ## Load ANN models
+    # find newest backup
+    Q_target.load_state_dict(torch.load(back_up_path+"Q_target"))
+    Q_train.load_state_dict(torch.load(back_up_path+"Q_train"))
+    
+    replay_buffer = Replay_buffer(replay_buffer_size, im_dim, n_phi, save_type="disk", cache=False, resume=True, save_location = back_up_path)
+    # Load last time step
+    with open(back_up_path+'objs.pkl', 'rb') as f:
+        n_frames = pickle.load(f)
+    
+    
+else:
+    writer = SummaryWriter()
+    ## Add hyper parameters to tensorboard
+    writer.add_text("Environment", str(env_id))
+    writer.add_text("Buffer size", str(replay_buffer_size))
+    writer.add_text("Batch size", str(batch_size))
+    writer.add_text("Learning rate", str(lr_rate))
+    writer.add_text("Frames skip", str(4))
+    writer.add_text("Type", "DDQN")
+    writer.add_text("Notes", notes)
+    
+    replay_buffer = Replay_buffer(replay_buffer_size, im_dim, n_phi, save_type="disk", cache=False)
 
-
+t1 = time()
 while n_frames<final_frame:
     done = False
     episode_index += 1
-    S = np.zeros((n_phi,) + (84,84,1), dtype="uint8")
     S = env.reset()
     
     while not done:
+        # Get fps
+        t2 = time()
+        fps_list.append(1/(t2-t1))
+        t1 = t2
         # Get random chance
         epsilon = epsilon_by_frame(n_frames)
         # Select action
@@ -178,7 +231,7 @@ while n_frames<final_frame:
         replay_buffer.add_replay([S, a, r, S_next, done])
         S = S_next
         episode_reward += r
-        n_frames += 4
+        n_frames += 1
         
         if (n_frames > replay_initial) & (n_frames % update_freq == 0):
             # Update model
@@ -189,9 +242,9 @@ while n_frames<final_frame:
                 writer.add_scalar('loss', np.mean(loss_list), n_frames)
                 loss_list = []
 
-        if (par_updates % target_update_freq == 0):
+        if (n_frames % target_update_freq == 0): # This would instead be based on parameter updates following the nature paper, but in their code it is based on frames
             # Update target network
-                    Q_target.load_state_dict(Q_train.state_dict())
+                Q_target.load_state_dict(Q_train.state_dict())
                 
         if (n_frames % save_freq == 0):
             # Save model
@@ -200,4 +253,18 @@ while n_frames<final_frame:
     if env.was_real_done:
         print(episode_reward)
         writer.add_scalar('Episode reward', episode_reward, episode_index)
+        writer.add_scalar('FPS', np.array(fps_list).mean(), episode_index)
+        fps_list = []
         episode_reward = 0
+        
+        # Check if it is time stop
+        total_time = time()-start_time
+        if (runtime>=total_time):
+            # Save everything
+            torch.save(Q_target.state_dict(), back_up_path + "Q_target")
+            torch.save(Q_train.state_dict(), back_up_path + "Q_train")
+            replay_buffer.save_buffer(back_up_path+"arrays.npy")
+            with open(back_up_path+'objs.pkl', 'wb') as f:
+                pickle.dump([n_frames], f)
+            
+            

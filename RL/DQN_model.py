@@ -33,6 +33,7 @@ class CnnDQN(nn.Module):
         # input format is (B,H,W,C)
         #with torch.no_grad():
         #    x = x.permute(0,3,1,2)
+        x = x/255 # normalize
         x = self.features(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
@@ -50,7 +51,54 @@ class CnnDQN(nn.Module):
     
     
     
+class CnnDDQN(nn.Module):
+    def __init__(self, input_shape, num_actions, prov_bias = None):
+        super(CnnDDQN, self).__init__()
+        
+        self.input_shape = input_shape
+        self.num_actions = num_actions
+
+        self.features = nn.Sequential(
+            nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.ReLU()
+        )
+        
+        self.fc = nn.Sequential(
+            nn.Linear(self.feature_size(), 512),
+            nn.ReLU(),
+            nn.Linear(512, self.num_actions,  bias=False) # The bias will be from a shared layer between models
+        )
+        if prov_bias == None:
+            self.bias = nn.Parameter(torch.zeros(num_actions)) # This is the shared bias layer
+        else: 
+            self.bias = prov_bias
+            
+    def return_bias(self):
+        return self.bias
     
+    def forward(self, x, bias = None):
+        # input format is (B,H,W,C)
+        #    x = x.permute(0,3,1,2)
+        x = x/255 # normalize
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        x = x + self.bias
+        return x
+    
+    def feature_size(self):
+        return self.features(autograd.Variable(torch.zeros(1, *self.input_shape))).view(1, -1).size(1)
+    
+    def act(self, S):
+        with torch.no_grad():
+            S = Variable(torch.FloatTensor(np.float32(S))).unsqueeze(0)
+            q_value = self.forward(S)
+            a = q_value.max(1)[1].data[0]
+        return a
     
 
 class CnnDQN_VAE(nn.Module):
