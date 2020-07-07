@@ -201,7 +201,7 @@ else:
     writer.add_text("Type", "DDQN")
     writer.add_text("Notes", notes)
     
-    replay_buffer = Replay_buffer(replay_buffer_size, im_dim, n_phi, save_type="disk", cache=False)
+    replay_buffer = Replay_buffer(replay_buffer_size, im_dim, n_phi, save_type="disk", cache=False, save_location = back_up_path)
 
 t1 = time()
 while n_frames<final_frame:
