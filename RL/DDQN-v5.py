@@ -187,7 +187,7 @@ if resume:
     replay_buffer = Replay_buffer(replay_buffer_size, im_dim, n_phi, save_type="disk", cache=False, resume=True, save_location = back_up_path)
     # Load last time step
     with open(back_up_path+'objs.pkl', 'rb') as f:
-        n_frames, episode_index = pickle.load(f)
+        n_frames = pickle.load(f)
     
     
 else:
@@ -263,7 +263,7 @@ while n_frames<final_frame:
             torch.save(Q_train.state_dict(), back_up_path + "Q_train")
             replay_buffer.save_buffer()
             with open(back_up_path+'objs.pkl', 'wb') as f:
-                pickle.dump([n_frames, episode_index], f)
+                pickle.dump([n_frames], f)
             # Stop program
             print("Program stopped")
             break
