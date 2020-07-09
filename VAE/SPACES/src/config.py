@@ -22,7 +22,7 @@ cfg = CfgNode({
     'demodir': '../output/demo/',
     
     # Dataset to use
-    'dataset': 'Riverraid_seq',
+    'dataset': 'MontezumaRevenge_seq',
     
     'dataset_roots': {
         'ATARI': '../data/ATARI',
@@ -30,6 +30,7 @@ cfg = CfgNode({
         'OBJ3D_SMALL': '../data/OBJ3D_SMALL',
         'Riverraid_seq': '../data/Riverraid_seq',
         'Space_invaders': '../data/SpaceInvaders-v0',
+        'MontezumaRevenge_seq': '../data/MontezumaRevenge_seq',
     },
     
     # For Atari
