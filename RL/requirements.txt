@@ -2,3 +2,4 @@ stable_baselines==2.10.0
 numpy==1.17.2
 tensorboard==2.2.2
 tensorflow==1.14.0
+pip install gym[atari]
