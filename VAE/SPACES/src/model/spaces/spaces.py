@@ -41,6 +41,17 @@ class Spaces(nn.Module):
         if 'cuda' in cfg.device:
             torch.set_default_tensor_type(torch.cuda.FloatTensor)
         
+    def get_h_0(self, sizes):
+        h_prev = {}
+        h_scale = torch.zeros(1, sizes["B"] , sizes["G"]**2)
+        h_shift = torch.zeros(1, sizes["B"] , sizes["G"]**2)
+        h_pres = torch.zeros(1, sizes["B"] , sizes["G"]**2)
+        h_depth = torch.zeros(1, sizes["B"] , sizes["G"]**2)
+        h_start_what = torch.zeros(sizes["B"]*sizes["G"]**2, arch.recurrent_dim ,1,1)
+        
+        h_prev["h_pres"], h_prev["h_depth"], h_prev["h_scale"], h_prev["h_shift"], h_prev["h_what"] = h_pres, h_depth, h_scale, h_shift, h_start_what
+        return h_prev
+        
     def forward(self, x, global_step):
         """
         Inference.
@@ -75,14 +86,7 @@ class Spaces(nn.Module):
         # Foreground extraction
         # This has to be sequentially
         # Predefine first passed on information
-        h_prev = {}
-        h_scale = torch.zeros(1, sizes["B"] , sizes["G"]**2)
-        h_shift = torch.zeros(1, sizes["B"] , sizes["G"]**2)
-        h_pres = torch.zeros(1, sizes["B"] , sizes["G"]**2)
-        h_depth = torch.zeros(1, sizes["B"] , sizes["G"]**2)
-        h_start_what = torch.zeros(sizes["B"]*sizes["G"]**2, arch.recurrent_dim ,1,1)
-        
-        h_prev["h_pres"], h_prev["h_depth"], h_prev["h_scale"], h_prev["h_shift"], h_prev["h_what"] = h_pres, h_depth, h_scale, h_shift, h_start_what
+        h_prev = get_h_0(sizes)
         
         fg_likelihood = torch.zeros(sizes["B"], sizes["L"], 3, sizes["H"], sizes["W"])
         fg            = torch.zeros(sizes["B"], sizes["L"], 3, sizes["H"], sizes["W"])
@@ -138,7 +142,7 @@ class Spaces(nn.Module):
     
     
     
-    def inference(self, x, h_prev):
+    def inference(self, x, h_prev, reset = False):
         """
         Inference
         
@@ -158,20 +162,30 @@ class Spaces(nn.Module):
         # Background extraction
         # Background is not sequentially encoded, so Batch size and sequence length can be combined
         # (B*L, 3, H, W), (B*L, 3, H, W), (B*L,)
-        bg_likelihood, bg, kl_bg, log_bg = self.bg_module(x.view([-1, 3, sizes["H"], sizes["W"]]), global_step)
+        global_step = 100000
+        z_mask_loc, z_mask_scale, z_comp_loc_reshape, z_comp_scale_reshape = self.bg_module.inference(x.view([-1, 3, sizes["H"], sizes["W"]]), global_step)
         # Divide batch size and sequence length again
-        bg = bg.view([sizes["B"], sizes["L"], 3, sizes["H"], sizes["W"]])
+        #bg = bg.view([sizes["B"], sizes["L"], 3, sizes["H"], sizes["W"]])
         
         # Foreground extraction
         # This has to be sequentially
         # Predefine first passed on information
-        h_prev = {}
-        
-        h_prev["h_pres"], h_prev["h_depth"], h_prev["h_scale"], h_prev["h_shift"], h_prev["h_what"] = h_pres, h_depth, h_scale, h_shift, h_start_what
-        
+        if reset:
+            h_prev = self.get_h_0(sizes)
         
         # Now run for each element in sequence
-
-        Z_infer, h = self.fg_module.inference(x, h_prev)
-        Z_infer = torch.stack(list(Z_infer.values()))
-        return Z_infer, h
+        Z_infs = []
+        h_s = []
+        for i in range(x.shape[1]):
+            Z_infer, h, h_prev = self.fg_module.inference(x[:,i], h_prev)
+            Z_infs.append(Z_infer)
+            h_s.append(h)
+            
+        
+        Z_infer = torch.cat(list(Z_infer.values()),dim=2)
+        h_s = torch.cat(h_s,dim=2)
+        background = torch.cat([z_mask_loc, z_mask_scale, z_comp_loc_reshape, z_comp_scale_reshape], dim = 0)
+        background = background.permute(1,0).unsqueeze(0)
+        # Combine different inputs
+        Z_infer = torch.cat([Z_infer, h_s, background], dim = 2)
+        return Z_infer, h_prev

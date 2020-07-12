@@ -29,8 +29,6 @@ import cv2
 cv2.ocl.setUseOpenCL(False)
 from stable_baselines.common.atari_wrappers import EpisodicLifeEnv, FireResetEnv
 
-
-from IPython.display import clear_output
 import matplotlib.pyplot as plt
 from helper_functions_new import Replay_buffer
 from DQN_model import CnnDDQN_VAE
@@ -256,7 +254,7 @@ epsilon_by_frame = lambda n_frames: epsilon_final + (epsilon_start - epsilon_fin
 ## Import SPACE
 import os
 import sys
-sys.path.insert(0, '/home/rasmus/DTU/VAE_RL/SPACE/src')
+sys.path.append('/home/rasmus/DTU/VAE_RL/SPACE/src')
 from engine.utils import get_config
 from model import get_model
 from utils import Checkpointer, MetricLogger

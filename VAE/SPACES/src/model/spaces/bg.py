@@ -45,6 +45,8 @@ class SpaceBg(nn.Module):
         # ==== Prior related ====
 
         self.bg_sigma = arch.bg_sigma
+        
+        self.rescale_inference = nn.ConstantPad1d(80, 0)
     
     def anneal(self, global_step):
         pass
@@ -181,6 +183,87 @@ class SpaceBg(nn.Module):
         }
         
         return bg_likelihood, bg, kl_bg, log
+    
+    def inference(self, x, global_step):
+        """
+        Background inference backward pass
+        
+        :param x: shape (B*L, C, H, W)
+        :param global_step: global training step
+        :return:
+            bg_likelihood: (B*L, 3, H, W)
+            bg: (B*L, 3, H, W)
+            kl_bg: (B*L,)
+            log: a dictionary containing things for visualization
+        """
+        B = x.size(0)
+        
+        # (B*L, D)
+        x_enc = self.image_enc(x)
+        
+        # Mask and component latents over the K slots
+        masks = []
+        z_masks = []
+        z_masks_loc = []
+        z_masks_scale = []
+        
+        # These two are Normal instances
+        z_mask_posteriors = []
+        z_comp_posteriors = []
+        
+        # Initialization: encode x and dummy z_mask_0
+        z_mask = self.z_mask_0.expand(B, arch.z_mask_dim)
+        h = self.rnn_mask_h.expand(B, arch.rnn_mask_hidden_dim)
+        c = self.rnn_mask_c.expand(B, arch.rnn_mask_hidden_dim)
+        
+        for i in range(arch.K):
+            # Encode x and z_{mask, 1:k}, (b, D)
+            rnn_input = torch.cat((z_mask, x_enc), dim=1)
+            (h, c) = self.rnn_mask(rnn_input, (h, c))
+            
+            # Predict next mask from x and z_{mask, 1:k-1}
+            z_mask_loc, z_mask_scale = self.predict_mask(h)
+            z_masks_loc.append(z_mask_loc)
+            z_masks_scale.append(z_mask_scale)
+            z_mask_post = Normal(z_mask_loc, z_mask_scale)
+            z_mask = z_mask_post.rsample()
+            z_masks.append(z_mask)
+            z_mask_posteriors.append(z_mask_post)
+            # Decode masks
+            mask = self.mask_decoder(z_mask)
+            masks.append(mask)
+        
+        # (B*L, K, 1, H, W), in range (0, 1)
+        masks = torch.stack(masks, dim=1)
+        
+        z_masks_loc = torch.stack(z_masks_loc, dim=1)
+        z_masks_loc = z_masks_loc.view(B,-1)
+        z_masks_loc = self.rescale_inference(z_masks_loc) # should be (B,256)
+        z_masks_scale = torch.stack(z_masks_scale, dim=1)
+        z_masks_scale = z_masks_scale.view(B,-1)
+        z_masks_scale = self.rescale_inference(z_masks_scale) # should be (B,256)
+        
+        # SBP to ensure they sum to 1
+        masks = self.SBP(masks)
+        # An alternative is to use softmax
+        # masks = F.softmax(masks, dim=1)
+        
+        B, K, _, H, W = masks.size()
+        
+        # Reshape (B*L, K, 1, H, W) -> (B*L*K, 1, H, W)
+        masks = masks.view(B * K, 1, H, W)
+        
+        # Concatenate images (B*K, 4, H, W)
+        comp_vae_input = torch.cat(((masks + 1e-5).log(), x[:, None].repeat(1, K, 1, 1, 1).view(B * K, 3, H, W)), dim=1)
+        
+        # Component latents, each (B*L*K, L)
+        z_comp_loc, z_comp_scale = self.comp_encoder(comp_vae_input)
+        z_comp_loc_reshape = z_comp_loc.reshape(B, -1)
+        z_comp_scale_reshape = z_comp_scale.reshape(B, -1)
+        z_comp_loc_reshape = self.rescale_inference(z_comp_loc_reshape) # should be (B,256)
+        z_comp_scale_reshape = self.rescale_inference(z_comp_scale_reshape) # should be (B,256)
+        
+        return z_masks_loc, z_masks_scale, z_comp_loc_reshape, z_comp_scale_reshape
 
     @staticmethod
     def SBP(masks):

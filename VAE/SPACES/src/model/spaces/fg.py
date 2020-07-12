@@ -260,7 +260,7 @@ class SpacesFg(nn.Module):
     
     
     
-    def inference(self, x, h):
+    def inference(self, x, h_prev):
         """
         Forward pass that only calculates the required values (z_values, h_values) for RL task
 
@@ -275,11 +275,9 @@ class SpacesFg(nn.Module):
             log: a dictionary containing anything we need for visualization
         """
         B = x.size(0)
-        h = {}
         
         # Everything is (B, G*G, D), where D varies
-        z_scale, z_shift, z_where, Z_infer, \
-        h["h_pres"], h["h_depth"], h["h_scale"], h["h_shift"] = self.img_encoder.infer(x, self.tau, h_prev)
+        Z_infer, h, z_where, h_prev = self.img_encoder.inference(x, self.tau, h_prev)
 
         # (B, 3, H, W) -> (B*G*G, 3, H, W). Note we must use repeat_interleave instead of repeat
         x_repeat = torch.repeat_interleave(x, arch.G ** 2, dim=0)
@@ -290,30 +288,9 @@ class SpacesFg(nn.Module):
                                   (B * arch.G ** 2, 3, arch.glimpse_size, arch.glimpse_size), inverse=False)
         
         # (B*G*G, D)
-        Z_infer_what, h["h_what"] = self.z_what_net(x_att, h_prev)
+        Z_infer_what, h_prev["h_what"] = self.z_what_net.inference(x_att, h_prev)
         Z_infer.update(Z_infer_what)
-
-        
-        # dimensionality check
-        assert ((kl_z_pres.size() == (B, arch.G ** 2, 1)) and
-                (kl_z_depth.size() == (B, arch.G ** 2, 1)) and
-                (kl_z_scale.size() == (B, arch.G ** 2, 2)) and
-                (kl_z_shift.size() == (B, arch.G ** 2, 2)) and
-                (kl_z_what.size() == (B, arch.G ** 2, arch.z_what_dim))
-                )
-        
-        
-        # For visualizating
-        # Dimensionality check
-        assert (
-            (z_pres.size() == (B, arch.G**2, 1)) and
-            (z_depth.size() == (B, arch.G**2, 1)) and
-            (z_scale.size() == (B, arch.G**2, 2)) and
-            (z_shift.size() == (B, arch.G**2, 2)) and
-            (z_where.size() == (B, arch.G**2, 4)) and
-            (z_what.size() == (B, arch.G**2, arch.z_what_dim))
-        )
-        return Z_infer, h
+        return Z_infer, h, h_prev
 
 
 class ImgEncoderFg(nn.Module):
@@ -556,42 +533,51 @@ class ImgEncoderFg(nn.Module):
             return out[0] if len(args) == 1 else out
         
         # Compute posteriors
-        
-        # (B, 1, G, G)
-        
-        cat_enc_pres = torch.cat((h_prev['h_pres'], cat_enc), dim=1)
+        cat_enc_h = self.enc_h(cat_enc).flatten(start_dim=1).unsqueeze(1) # This is for the GRU layers
+        h_n_pres, h_out_pres = self.h_pres_net(cat_enc_h, h_prev['h_pres'])
+        cat_enc_pres = torch.cat((h_out_pres.reshape(B,1,arch.G,arch.G), cat_enc), dim=1)
         z_pres_logits = 8.8 * torch.tanh(self.z_pres_net(cat_enc_pres))
         # (B, 1, G, G) - > (B, G*G, 1)
-        h_pres = self.h_pres_net(cat_enc_pres.flatten(start_dim=1))
+        z_pres_logits = reshape(z_pres_logits)
+        z_pres_post = NumericalRelaxedBernoulli(logits=z_pres_logits, temperature=tau)
+        # Unbounded
+        z_pres_y = z_pres_post.rsample()
+        # in (0, 1)
+        z_pres = torch.sigmoid(z_pres_y)
         
         # (B, 1, G, G)
-        cat_enc_depth = torch.cat((h_prev['h_depth'], cat_enc), dim=1)
+        h_n_depth, h_out_depth = self.h_depth_net(cat_enc_h, h_prev['h_depth'])
+        
+        cat_enc_depth = torch.cat((h_out_depth.reshape(B,1,arch.G,arch.G), cat_enc), dim=1)
         z_depth_mean, z_depth_std = self.z_depth_net(cat_enc_depth).chunk(2, 1)
         # (B, 1, G, G) -> (B, G*G, 1)
         z_depth_mean, z_depth_std = reshape(z_depth_mean, z_depth_std)
         z_depth_std = F.softplus(z_depth_std)
-        h_depth = self.h_depth_net(cat_enc_depth.flatten(start_dim=1))
+        z_depth_post = Normal(z_depth_mean, z_depth_std)
+        # (B, G*G, 1)
+        z_depth = z_depth_post.rsample()
         
         # (B, 2, G, G)
-        cat_enc_scale = torch.cat((h_prev['h_scale'], cat_enc), dim=1)
+        h_n_scale, h_out_scale = self.h_scale_net(cat_enc_h, h_prev['h_scale'])
+        cat_enc_scale = torch.cat((h_out_scale.reshape(B,1,arch.G,arch.G), cat_enc), dim=1)
         scale_std_bias = 1e-15
         z_scale_mean, _z_scale_std = self.z_scale_net(cat_enc_scale).chunk(2, 1)
         z_scale_std = F.softplus(_z_scale_std) + scale_std_bias
         # (B, 2, G, G) -> (B, G*G, 2)
-        z_scale_mean_s, z_scale_std_s = reshape(z_scale_mean, z_scale_std)
-        z_scale_post = Normal(z_scale_mean_s, z_scale_std_s)
+        z_scale_mean, z_scale_std = reshape(z_scale_mean, z_scale_std)
+        z_scale_post = Normal(z_scale_mean, z_scale_std)
         z_scale = z_scale_post.rsample()
-        h_scale = self.h_scale_net(cat_enc_scale.flatten(start_dim=1))
         
         # (B, 2, G, G)
-        cat_enc_shift = torch.cat((h_prev['h_shift'], cat_enc), dim=1)
-        z_shift_mean_s, z_shift_std_s = self.z_shift_net(cat_enc_shift).chunk(2, 1)
-        z_shift_std_s = F.softplus(z_shift_std_s)
+        h_n_shift, h_out_shift = self.h_shift_net(cat_enc_h, h_prev['h_shift'])
+        cat_enc_shift = torch.cat((h_out_shift.reshape(B,1,arch.G,arch.G), cat_enc), dim=1)
+        
+        z_shift_mean, z_shift_std = self.z_shift_net(cat_enc_shift).chunk(2, 1)
+        z_shift_std = F.softplus(z_shift_std)
         # (B, 2, G, G) -> (B, G*G, 2)
-        z_shift_mean, z_shift_std = reshape(z_shift_mean_s, z_shift_std_s)
+        z_shift_mean, z_shift_std = reshape(z_shift_mean, z_shift_std)
         z_shift_post = Normal(z_shift_mean, z_shift_std)
         z_shift = z_shift_post.rsample()
-        h_shift = self.h_shift_net(cat_enc_shift.flatten(start_dim=1))
         
         # scale: unbounded to (0, 1), (B, G*G, 2)
         z_scale = z_scale.sigmoid()
@@ -606,12 +592,17 @@ class ImgEncoderFg(nn.Module):
         
         Z_infer = {"pres": z_pres_logits,
                   "depth_mean" : z_depth_mean,
-                  "depth_std" :  z_depth_std,
-                  "scale_mean" :  z_scale_mean_s,
-                  "scale_std" :  z_scale_std_s,
-                  "shift_mean" :  z_shift_mean_s,
-                  "shift_std" :  z_shift_std_s
+                  #"depth_std" :  z_depth_std,
+                  "scale_mean" :  z_scale_mean,
+                  #"scale_std" :  z_scale_std,
+                  "shift_mean" :  z_shift_mean,
+                  #"shift_std" :  z_shift_std
                   }
+        h_new = {'h_pres': h_n_pres,
+                'h_depth': h_n_depth,
+                'h_scale': h_n_scale,
+                'h_shift': h_n_shift}
+        cat_enc_h = cat_enc_h.view(B, 256, 2)
         # Check dimensions
         assert (
                 (z_pres.size() == (B, arch.G ** 2, 1)) and
@@ -621,7 +612,7 @@ class ImgEncoderFg(nn.Module):
                 (z_where.size() == (B, arch.G ** 2, 4))
         )
         
-        return z_scale, z_shift, z_where, Z_infer, h_pres, h_depth, h_scale, h_shift
+        return Z_infer, cat_enc_h, z_where, h_new
 
 
 class ZWhatEnc(nn.Module):
@@ -691,8 +682,8 @@ class ZWhatEnc(nn.Module):
         h_what = self.h_what_net(x.flatten(start_dim=1))
         h_what = h_what.unsqueeze(2).unsqueeze(2)
         
-        Z_infer = {"what_mean" : z_what_mean,
-                   "what_std" : z_what_std}
+        Z_infer = {"what_mean" : z_what_mean.unsqueeze(0)}
+                   #,"what_std" : z_what_std.unsqueeze(0)}
         return Z_infer, h_what
 
 
