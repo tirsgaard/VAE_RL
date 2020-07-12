@@ -311,7 +311,7 @@ env = wrap_deepmind(env, clip_rewards=False, frame_stack=True, episode_life=True
 env = SkipEnv(env) 
 
 n_phi = 4 # number of frames to stack
-im_dim = (256, 41)
+im_dim = (256, 42)
 Q_train = CnnDDQN_VAE((n_phi,) + im_dim, env.action_space.n, max_pool=True)
 Q_target = CnnDDQN_VAE((n_phi,) + im_dim, 
                        env.action_space.n, 
@@ -330,7 +330,7 @@ save_path = "models/DDQN_SPACE_"+env_id
 back_up_path = "backup/DDQN_SPACE_"+env_id+"/"
 save_freq = 10**5
 tensorboard_update_freq = 100
-resume = True
+resume = False
 run_time = 100 # in seconds
 
 ## Runtime hyperparamters
@@ -351,7 +351,7 @@ gamma      = 0.99
 ## Update parameters
 update_freq = 4*n_phi
 target_update_freq = 3*10**4 # following Double Q-learing
-normalizer = Normalizer((256, 41))
+normalizer = Normalizer((256, 42))
 
 
 episode_reward = 0
