@@ -290,6 +290,7 @@ class SPACES_encoder:
         with torch.no_grad():
             x = torch.stack(x).cuda()
             # Normalize x
+            x = x/255
             x = torch.unsqueeze(x,0)
             z, self.h = self.SPACES_model.inference(x, self.h, reset)
             # Returns space of (1, n_phi, H*W, 42)

@@ -293,7 +293,7 @@ class SPACE_encoder:
             x = torch.stack(x).cuda()
             print(x.shape)
             # Normalize x
-            #x = x/255
+            x = x/255
             
             z = self.SPACE_model.forward(x, 10000)
             # Returns space of (n_phi, H*W, 42)
