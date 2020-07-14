@@ -173,11 +173,11 @@ class CnnDDQN_VAE(nn.Module):
             )
         else:
             self.features = nn.Sequential(
-                nn.Conv2d(input_shape[0], 64, kernel_size=3, stride=1, padding=1),
+                nn.Conv2d(input_shape[0], 64, kernel_size=3, stride=1, padding=0),
                 nn.ReLU(),
-                nn.Conv2d(64, 64, kernel_size=3, stride=1,padding=1),
+                nn.Conv2d(64, 64, kernel_size=3, stride=1,padding=0),
                 nn.ReLU(),
-                nn.Conv2d(64, 64, kernel_size=3, stride=1,padding=1),
+                nn.Conv2d(64, 64, kernel_size=3, stride=1,padding=0),
                 nn.ReLU()
             )
         

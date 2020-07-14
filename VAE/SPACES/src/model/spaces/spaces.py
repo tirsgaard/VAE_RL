@@ -72,7 +72,7 @@ class Spaces(nn.Module):
         # Background extraction
         # Background is not sequentially encoded, so Batch size and sequence length can be combined
         # (B*L, 3, H, W), (B*L, 3, H, W), (B*L,)
-        bg_likelihood, bg, kl_bg, log_bg = self.bg_module(x.view([-1, 3, sizes["H"], sizes["W"]]), global_step)
+        bg_likelihood, bg, kl_bg, log_bg = self.bg_module(x.view([sizes["B"]*sizes["L"], 3, sizes["H"], sizes["W"]]), global_step)
         # Divide batch size and sequence length again
         bg_likelihood = bg_likelihood.view([sizes["B"], sizes["L"], 3, sizes["H"], sizes["W"]])
         try:
@@ -178,14 +178,13 @@ class Spaces(nn.Module):
         h_s = []
         for i in range(x.shape[1]):
             Z_infer, h, h_prev = self.fg_module.inference(x[:,i], h_prev)
-            Z_infs.append(Z_infer)
+            Z_infs.append(torch.cat(list(Z_infer.values()),dim=2))
             h_s.append(h)
             
-        
-        Z_infer = torch.cat(list(Z_infer.values()),dim=2)
-        h_s = torch.cat(h_s,dim=2)
-        background = torch.cat([z_mask_loc, z_mask_scale, z_comp_loc_reshape, z_comp_scale_reshape], dim = 0)
-        background = background.permute(1,0).unsqueeze(0)
+        Z_infer = torch.stack(Z_infs, dim=1)
+        h_s = torch.cat(h_s,dim=0).unsqueeze(0)
+        background = torch.stack([z_mask_loc, z_mask_scale, z_comp_loc_reshape, z_comp_scale_reshape])
+        background = background.permute(1,2,0).unsqueeze(0)
         # Combine different inputs
-        Z_infer = torch.cat([Z_infer, h_s, background], dim = 2)
+        Z_infer = torch.cat([Z_infer, h_s, background], dim = 3)
         return Z_infer, h_prev

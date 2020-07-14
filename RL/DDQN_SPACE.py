@@ -44,15 +44,17 @@ writer = SummaryWriter()
 ## Back propergation
 def compute_td_loss(batch_size, iter_number):
     S, a, r, S_next, done = replay_buffer.return_batch(batch_size)
-
     S      = Variable(torch.FloatTensor(np.float32(S)))
     S_next = Variable(torch.FloatTensor(np.float32(S_next)))
     a      = Variable(torch.LongTensor(a))
     r      = torch.sign(Variable(torch.FloatTensor(r)))
     done   = Variable(torch.FloatTensor(done))
 
-    
     with torch.no_grad():
+        # Normalize
+        S = normalizer.normalize(S)
+        S_next = normalizer.normalize(S_next)
+        
         q_next_train = Q_train(S_next)
         q_next_target = Q_target(S_next)
         q_val_next = q_next_target.gather(1, q_next_train.argmax(1).unsqueeze(1)).squeeze(1)#q_next_target[range(batch_size),q_next_train.argmax(1)]
@@ -217,35 +219,36 @@ def wrap_deepmind(env, episode_life=True, clip_rewards=True, frame_stack=False, 
 
 class Normalizer():
     def __init__(self, num_inputs):
-        self.n = torch.zeros(num_inputs)
-        self.mean = torch.zeros(num_inputs)
-        self.mean_diff = torch.zeros(num_inputs)
-        self.var = torch.zeros(num_inputs)
-
+        self.mean = torch.zeros(num_inputs).cuda()
+        self.var = torch.zeros(num_inputs).cuda()
+        self.n = torch.zeros(1).cuda()
+        
     def collect_and_norm(self, x):
         ### Assumes input format is (1,C,H,W)
         # Update values
-        for i in range(x.shape[1]):
-            self.n += 1
-            last_mean = self.mean.clone()
-            self.mean += (x[0,i]-self.mean)/self.n
-            self.mean_diff += (x[0,i]-last_mean)*(x[0,i]-self.mean)
-            self.var = self.mean_diff/self.n#torch.clamp(self.mean_diff/self.n, min=1e-2)
+        n_samples = x.shape[2]*x.shape[3]
+        old_n = self.n.clone()
+        self.n += n_samples
+        new_mean = x.mean(dim=(0,2,3))
+        new_var = x.var(dim=(0,2,3))
+        
+        self.mean = self.mean*old_n/self.n + new_mean*n_samples/self.n
+        self.var = self.var*old_n/self.n + new_var*n_samples/self.n
         
         # Return normalized image
         obs_std = torch.sqrt(self.var)
-        return (x - self.mean)/obs_std
+        return ((x.permute(0,2,3,1) - self.mean)/obs_std).permute(0,3,1,2)
 
     def normalize(self, inputs):
         ### Assumes input format is (B,C,H,W)
         obs_std = torch.sqrt(self.var)
-        return (inputs - self.mean)/obs_std
+        return ((inputs.permute(0,2,3,1)  - self.mean)/obs_std).permute(0,3,1,2)
     
 def proc_S(S):
     # Convert from torch dim=(1,C,H,W) to numpy = (H,W,C)
     S = S.squeeze(0)
     S = S.permute(1,2,0)
-    S = S.numpy()
+    S = S.cpu().numpy()
     return S
 
 epsilon_by_frame = lambda n_frames: epsilon_final + (epsilon_start - epsilon_final) * math.exp(-1. * n_frames / epsilon_decay)
@@ -288,6 +291,7 @@ class SPACE_encoder:
     def encode(self,x):
         with torch.no_grad():
             x = torch.stack(x).cuda()
+            print(x.shape)
             # Normalize x
             #x = x/255
             
@@ -310,12 +314,12 @@ env = MaxEnv(env)
 env = wrap_deepmind(env, clip_rewards=False, frame_stack=True, episode_life=True)# We clip rewards in loss calculation
 env = SkipEnv(env) 
 
-n_phi = 4 # number of frames to stack
-im_dim = (256, 42)
-Q_train = CnnDDQN_VAE((n_phi,) + im_dim, env.action_space.n, max_pool=True)
+n_phi = 168 # number of frames to stack
+im_dim = (16, 16)
+Q_train = CnnDDQN_VAE((n_phi,) + im_dim, env.action_space.n, max_pool=False)
 Q_target = CnnDDQN_VAE((n_phi,) + im_dim, 
                        env.action_space.n, 
-                       max_pool=True, 
+                       max_pool=False, 
                        prov_bias = Q_train.return_bias())
 Q_target.load_state_dict(Q_train.state_dict())
 
@@ -349,9 +353,9 @@ final_frame = 10**9
 batch_size = 32
 gamma      = 0.99
 ## Update parameters
-update_freq = 4*n_phi
+update_freq = 4
 target_update_freq = 3*10**4 # following Double Q-learing
-normalizer = Normalizer((256, 42))
+normalizer = Normalizer((4*42))
 
 
 episode_reward = 0
@@ -400,9 +404,11 @@ while n_frames<final_frame:
     done = False
     episode_index += 1
     S = env.reset()
+    print(torch.stack(S).shape)
     with torch.no_grad():
         S = VAE_encoder.encode(S)
-        S = normalizer.collect_and_norm(S) # normalize
+        S = S.permute((0,1,3,2))
+        S = S.reshape(1, 4*42, 16, 16)
     
     while not done:
         # Get fps
@@ -412,17 +418,20 @@ while n_frames<final_frame:
         # Get random chance
         epsilon = epsilon_by_frame(n_frames)
         # Select action
+        with torch.no_grad():
+            S_normed = normalizer.collect_and_norm(S.cuda()) # normalize
         if np.random.rand(1)[0]<epsilon: # Case ranom move selected
                 a = np.random.randint(env.action_space.n)
         else:
             with torch.no_grad():# Case non-random move selected greedely
-                a = Q_train.act(S)
+                a = Q_train.act(S_normed)
 
         # Advance state
         S_next, r, done, info = env.step(a)
         with torch.no_grad():
             S_next = VAE_encoder.encode(S_next)
-            S_next = normalizer.collect_and_norm(S_next) # normalize
+            S_next = S_next.permute((0,1,3,2))
+            S_next = S_next.reshape(1, 4*42, 16, 16)
             replay_buffer.add_replay([proc_S(S), a, r, proc_S(S_next), done])
             
         S = S_next
