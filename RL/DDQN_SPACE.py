@@ -257,25 +257,19 @@ epsilon_by_frame = lambda n_frames: epsilon_final + (epsilon_start - epsilon_fin
 ## Import SPACE
 import os
 import sys
-sys.path.append('/home/rasmus/DTU/VAE_RL/SPACE/src')
+sys.path.append('/home/rasmus/DTU/VAE_RL/SPACE/src') # location of space files
 from engine.utils import get_config
 from model import get_model
 from utils import Checkpointer, MetricLogger
 from solver import get_optimizers
 import os.path as osp
 
-cwd = os.getcwd()
-# Change working directory for easier integration of SPACE
-os.chdir('/home/rasmus/DTU/VAE_RL/SPACE/src')
-sys.path.append('/home/rasmus/DTU/VAE_RL/SPACE/src')
-print(os.getcwd())
 cfg, task = get_config()
-cfg.checkpointdir = '/home/rasmus/DTU/VAE_RL/SPACE/output/checkpoints'
-cfg.resume_ckpt = '/home/rasmus/DTU/VAE_RL/github/VAE_RL/RL/VAE_models/model_000061001.pth'
+cfg.checkpointdir = '/home/rasmus/DTU/VAE_RL/SPACE/output/checkpoints'# Location of space checkpoint folder
+cfg.resume_ckpt = '/home/rasmus/DTU/VAE_RL/github/VAE_RL/RL/VAE_models/model_000061001.pth' # Location of space model
 cfg.model = 'SPACE_atari'
 model = get_model(cfg)
 optimizer_fg, optimizer_bg = get_optimizers(cfg, model)
-SPACE_model_location = 'VAE_models/'# model save
 
 checkpointer = Checkpointer(osp.join(cfg.checkpointdir, cfg.exp_name), max_num=cfg.train.max_ckpt)
 checkpoint = checkpointer.load_last(cfg.resume_ckpt, model, optimizer_fg, optimizer_bg)
@@ -306,9 +300,7 @@ import os
 if not os.path.exists('models'):
     os.makedirs('models')
 
-#env = gym.make("PongNoFrameskip-v4")
-env_id = "MontezumaRevenge-v0"
-#env_id = "Riverraid-v0"
+env_id = "FishingDerby-v0"
 env = gym.make(env_id)
 env = MaxEnv(env)
 env = wrap_deepmind(env, clip_rewards=False, frame_stack=True, episode_life=True)# We clip rewards in loss calculation
@@ -331,18 +323,18 @@ lr_rate = 0.0000625
 optimizer = optim.Adam(Q_train.parameters(), lr=lr_rate)
 ## Saving parameters
 save_path = "models/DDQN_SPACE_"+env_id
-back_up_path = "backup/DDQN_SPACE_"+env_id+"/"
+back_up_path = "/work3/s174495/backup/DDQN_SPACE_"+env_id+"/"
 save_freq = 10**5
 tensorboard_update_freq = 100
 resume = False
 run_time = 100 # in seconds
 
 ## Runtime hyperparamters
-notes = "Final run MontezumaRevenge-v0" # If anything should be noted in tensorboard
+notes = "Fishing Derby SPACE model" # If anything should be noted in tensorboard
 
 ## Runtime hyperparamters
-replay_initial = 100#50000
-replay_buffer_size = 10**5
+replay_initial = 50000
+replay_buffer_size = 10**6
 VAE_encoder = SPACE_encoder(model)
 
 epsilon_start = 1.0
