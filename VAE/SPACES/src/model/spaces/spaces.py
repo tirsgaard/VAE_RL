@@ -75,18 +75,13 @@ class Spaces(nn.Module):
         bg_likelihood, bg, kl_bg, log_bg = self.bg_module(x.view([sizes["B"]*sizes["L"], 3, sizes["H"], sizes["W"]]), global_step)
         # Divide batch size and sequence length again
         bg_likelihood = bg_likelihood.view([sizes["B"], sizes["L"], 3, sizes["H"], sizes["W"]])
-        try:
-            bg = bg.view([sizes["B"], sizes["L"], 3, sizes["H"], sizes["W"]])
-        except:
-                print(x.shape)
-                print(bg.shape)
-                print(x.view([-1, 3, sizes["H"], sizes["W"]]).shape)
+        bg = bg.view([sizes["B"], sizes["L"], 3, sizes["H"], sizes["W"]])
         kl_bg = kl_bg.view([sizes["B"], sizes["L"]])
         
         # Foreground extraction
         # This has to be sequentially
         # Predefine first passed on information
-        h_prev = get_h_0(sizes)
+        h_prev = self.get_h_0(sizes)
         
         fg_likelihood = torch.zeros(sizes["B"], sizes["L"], 3, sizes["H"], sizes["W"])
         fg            = torch.zeros(sizes["B"], sizes["L"], 3, sizes["H"], sizes["W"])

@@ -37,8 +37,6 @@ if USE_CUDA:
     torch.backends.cudnn.benchmark=True
 Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() if USE_CUDA else autograd.Variable(*args, **kwargs)
 
-writer = SummaryWriter()
-
 
 
 ## Back propergation
@@ -268,7 +266,6 @@ from solver import get_optimizers
 import os.path as osp
 
 cfg, task = get_config()
-cfg.checkpointdir = '/home/rasmus/DTU/VAE_RL/SPACE/output/checkpoints'
 cfg.resume_ckpt = os.path.abspath('VAE_models/SPACES/SPACES_MontesumaRevenge_seq/model_000012001.pth')
 cfg.model = 'SPACES'
 model = get_model(cfg)
@@ -289,8 +286,6 @@ class SPACES_encoder:
     def encode(self, x, reset = False):
         with torch.no_grad():
             x = torch.stack(x).cuda()
-            # Normalize x
-            x = x/255
             x = torch.unsqueeze(x,0)
             z, self.h = self.SPACES_model.inference(x, self.h, reset)
             # Returns space of (1, n_phi, H*W, 42)

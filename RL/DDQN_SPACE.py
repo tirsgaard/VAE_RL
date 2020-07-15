@@ -6,7 +6,7 @@ Created on Fri Feb 21 00:48:30 2020
 @author: tirsgaard
 # This is still outdated compared to the DDQN.py
 """
-
+import faulthandler; faulthandler.enable()
 import math, random
 
 import gym
@@ -40,7 +40,7 @@ Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() if 
 writer = SummaryWriter()
 
 
-
+print("test")
 ## Back propergation
 def compute_td_loss(batch_size, iter_number):
     S, a, r, S_next, done = replay_buffer.return_batch(batch_size)
@@ -257,7 +257,7 @@ epsilon_by_frame = lambda n_frames: epsilon_final + (epsilon_start - epsilon_fin
 ## Import SPACE
 import os
 import sys
-sys.path.append('/home/rasmus/DTU/VAE_RL/SPACE/src') # location of space files
+sys.path.append(os.path.abspath('../../SPACE_own/src')) # location of space files
 from engine.utils import get_config
 from model import get_model
 from utils import Checkpointer, MetricLogger
@@ -265,8 +265,7 @@ from solver import get_optimizers
 import os.path as osp
 
 cfg, task = get_config()
-cfg.checkpointdir = '/home/rasmus/DTU/VAE_RL/SPACE/output/checkpoints'# Location of space checkpoint folder
-cfg.resume_ckpt = '/home/rasmus/DTU/VAE_RL/github/VAE_RL/RL/VAE_models/model_000061001.pth' # Location of space model
+cfg.resume_ckpt = os.path.abspath('VAE_models/SPACE/FishingDerby/model_000060001.pth') # Location of space model
 cfg.model = 'SPACE_atari'
 model = get_model(cfg)
 optimizer_fg, optimizer_bg = get_optimizers(cfg, model)
@@ -275,8 +274,6 @@ checkpointer = Checkpointer(osp.join(cfg.checkpointdir, cfg.exp_name), max_num=c
 checkpoint = checkpointer.load_last(cfg.resume_ckpt, model, optimizer_fg, optimizer_bg)
 model.cuda()
 model.eval()
-os.chdir(cwd) # Go back to correct working directory
-
 
 class SPACE_encoder:
     def __init__(self,model):
@@ -285,9 +282,6 @@ class SPACE_encoder:
     def encode(self,x):
         with torch.no_grad():
             x = torch.stack(x).cuda()
-            print(x.shape)
-            # Normalize x
-            x = x/255
             
             z = self.SPACE_model.forward(x, 10000)
             # Returns space of (n_phi, H*W, 42)
@@ -323,11 +317,11 @@ lr_rate = 0.0000625
 optimizer = optim.Adam(Q_train.parameters(), lr=lr_rate)
 ## Saving parameters
 save_path = "models/DDQN_SPACE_"+env_id
-back_up_path = "/work3/s174495/backup/DDQN_SPACE_"+env_id+"/"
+back_up_path = "/work3/s174511/backup/DDQN_SPACE_"+env_id+"/"
 save_freq = 10**5
 tensorboard_update_freq = 100
 resume = False
-run_time = 100 # in seconds
+run_time = 23*3600 # in seconds
 
 ## Runtime hyperparamters
 notes = "Fishing Derby SPACE model" # If anything should be noted in tensorboard

@@ -22,15 +22,17 @@ cfg = CfgNode({
     'demodir': '../output/demo/',
     
     # Dataset to use
-    'dataset': 'MontezumaRevenge_seq',
+    'dataset': 'SpaceInvaders_seq',
     
     'dataset_roots': {
         'ATARI': '../data/ATARI',
         'OBJ3D_LARGE': '../data/OBJ3D_LARGE',
         'OBJ3D_SMALL': '../data/OBJ3D_SMALL',
         'Riverraid_seq': '../data/Riverraid_seq',
-        'Space_invaders': '../data/SpaceInvaders-v0',
+        'SpaceInvaders_seq': '../data/SpaceInvaders_seq',
         'MontezumaRevenge_seq': '../data/MontezumaRevenge_seq',
+        'FishingDerby_seq': '../data/FishingDerby_seq',
+        'Seaquest_seq': '../data/Seaquest_seq',
     },
     
     # For Atari

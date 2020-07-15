@@ -9,16 +9,23 @@ logdir: '../output/logs'
 checkpointdir: '../output/checkpoints'
 evaldir: '../output/eval'
 
-dataset: 'Space_invaders'
+dataset: 'FishingDerby_seq'
 dataset_roots:
   OBJ3D_SMALL: '../data/OBJ3D_SMALL'
   OBJ3D_LARGE: '../data/OBJ3D_LARGE'
   ATARI: '../data/ATARI'
   Space_invaders: '../data/SpaceInvaders-v0'
-
+  Riverraid_seq: '../data/Riverraid_seq'
+  MontezumaRevenge_seq: '../data/MontezumaRevenge_seq'
+  FishingDerby_seq: '../data/FishingDerby_seq'
+  Seaquest_seq: '../data/Seaquest_seq'
+  SpaceInvaders_seq: '../data/SpaceInvaders_seq'
 
 train:
   batch_size: 2
+  start_seq_length: 6
+  end_seq_length: 6
+  increase_seq: 5000 # Number of steps between 
   max_epochs: 1000
   max_steps: 100000
   print_every: 500
@@ -26,7 +33,7 @@ train:
   num_workers: 4
   clip_norm: 1.0
   max_ckpt: 4
-  eval_on: false
+  eval_on: False
   solver:
     fg:
       optim: 'RMSprop'

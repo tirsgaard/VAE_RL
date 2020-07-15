@@ -198,7 +198,7 @@ class CnnDDQN_VAE(nn.Module):
         return self.bias
     
     def act(self, S):
-        S   = Variable(torch.FloatTensor(np.float32(S)))#.unsqueeze(0))
+        # S   = Variable(torch.FloatTensor(S))#.unsqueeze(0))
         q_value = self.forward(S)
         a  = q_value.max(1)[1].data[0]
         return a
