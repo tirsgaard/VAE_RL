@@ -28,6 +28,7 @@ cfg = CfgNode({
         'ATARI': '../data/ATARI',
         'OBJ3D_LARGE': '../data/OBJ3D_LARGE',
         'OBJ3D_SMALL': '../data/OBJ3D_SMALL',
+        'Space_invaders': '../data/SpaceInvaders-v0',
         'Riverraid_seq': '../data/Riverraid_seq',
         'SpaceInvaders_seq': '../data/SpaceInvaders_seq',
         'MontezumaRevenge_seq': '../data/MontezumaRevenge_seq',

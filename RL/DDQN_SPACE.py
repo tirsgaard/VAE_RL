@@ -37,10 +37,6 @@ if USE_CUDA:
     torch.backends.cudnn.benchmark=True
 Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() if USE_CUDA else autograd.Variable(*args, **kwargs)
 
-writer = SummaryWriter()
-
-
-print("test")
 ## Back propergation
 def compute_td_loss(batch_size, iter_number):
     S, a, r, S_next, done = replay_buffer.return_batch(batch_size)
@@ -265,7 +261,7 @@ from solver import get_optimizers
 import os.path as osp
 
 cfg, task = get_config()
-cfg.resume_ckpt = os.path.abspath('VAE_models/SPACE/FishingDerby/model_000060001.pth') # Location of space model
+cfg.resume_ckpt = os.path.abspath('VAE_models/SPACE/SpaceInvaders/model_000027001.pth') # Location of space model
 cfg.model = 'SPACE_atari'
 model = get_model(cfg)
 optimizer_fg, optimizer_bg = get_optimizers(cfg, model)
@@ -282,19 +278,22 @@ class SPACE_encoder:
     def encode(self,x):
         with torch.no_grad():
             x = torch.stack(x).cuda()
-            
             z = self.SPACE_model.forward(x, 10000)
             # Returns space of (n_phi, H*W, 42)
             z = z.unsqueeze(0).cpu()
         
         return z
-    
+    def eval_perform(self, x):
+        with torch.no_grad():
+            x = torch.stack(x).cuda()
+            mse, log_like = self.SPACE_model.eval_perform(x, 10000)
+            return mse, log_like
     
 import os
 if not os.path.exists('models'):
     os.makedirs('models')
 
-env_id = "FishingDerby-v0"
+env_id = "SpaceInvaders-v0"
 env = gym.make(env_id)
 env = MaxEnv(env)
 env = wrap_deepmind(env, clip_rewards=False, frame_stack=True, episode_life=True)# We clip rewards in loss calculation
@@ -324,11 +323,11 @@ resume = False
 run_time = 23*3600 # in seconds
 
 ## Runtime hyperparamters
-notes = "Fishing Derby SPACE model" # If anything should be noted in tensorboard
+notes = "SpaceInvaders SPACE model" # If anything should be noted in tensorboard
 
 ## Runtime hyperparamters
 replay_initial = 50000
-replay_buffer_size = 10**6
+replay_buffer_size = 5*10**5
 VAE_encoder = SPACE_encoder(model)
 
 epsilon_start = 1.0
@@ -349,6 +348,8 @@ episode_index = 0
 par_updates = 0
 n_frames = 0
 loss_list = []
+mse_list = []
+log_like_list = []
 fps_list = []
 episode_reward = 0
 start_time = time()
@@ -390,11 +391,10 @@ while n_frames<final_frame:
     done = False
     episode_index += 1
     S = env.reset()
-    print(torch.stack(S).shape)
     with torch.no_grad():
-        S = VAE_encoder.encode(S)
-        S = S.permute((0,1,3,2))
-        S = S.reshape(1, 4*42, 16, 16)
+        S_VAE = VAE_encoder.encode(S)
+        S_VAE = S_VAE.permute((0,1,3,2))
+        S_VAE = S_VAE.reshape(1, 4*42, 16, 16)
     
     while not done:
         # Get fps
@@ -405,7 +405,7 @@ while n_frames<final_frame:
         epsilon = epsilon_by_frame(n_frames)
         # Select action
         with torch.no_grad():
-            S_normed = normalizer.collect_and_norm(S.cuda()) # normalize
+            S_normed = normalizer.collect_and_norm(S_VAE.cuda()) # normalize
         if np.random.rand(1)[0]<epsilon: # Case ranom move selected
                 a = np.random.randint(env.action_space.n)
         else:
@@ -415,12 +415,12 @@ while n_frames<final_frame:
         # Advance state
         S_next, r, done, info = env.step(a)
         with torch.no_grad():
-            S_next = VAE_encoder.encode(S_next)
-            S_next = S_next.permute((0,1,3,2))
-            S_next = S_next.reshape(1, 4*42, 16, 16)
-            replay_buffer.add_replay([proc_S(S), a, r, proc_S(S_next), done])
+            S_next_VAE = VAE_encoder.encode(S_next)
+            S_next_VAE = S_next_VAE.permute((0,1,3,2))
+            S_next_VAE = S_next_VAE.reshape(1, 4*42, 16, 16)
+            replay_buffer.add_replay([proc_S(S_VAE), a, r, proc_S(S_next_VAE), done])
             
-        S = S_next
+        S_VAE = S_next_VAE
         episode_reward += r
         n_frames += 1
 
@@ -428,13 +428,23 @@ while n_frames<final_frame:
             # Update model
             loss = compute_td_loss(batch_size,n_frames)
             loss_list.append(loss.item())
+
             if (n_frames % tensorboard_update_freq == 0):
                 writer.add_scalar('loss', np.mean(loss_list), n_frames)
                 loss_list = []
+                
+                # Also compute MSE and loglike of VAE
+                mse, log_like = VAE_encoder.eval_perform(S)
+                mse_list.append(mse.item())
+                log_like_list.append(log_like.item())
 
         if (n_frames % target_update_freq == 0): # This would instead be based on parameter updates following the nature paper, but in their code it is based on frames
             # Update target network
                 Q_target.load_state_dict(Q_train.state_dict())
+                
+                # Also add mse and log_like
+                writer.add_scalar('MSE', np.mean(mse_list), n_frames)
+                writer.add_scalar('log_like', np.mean(log_like_list), n_frames)
                 
         if (n_frames % save_freq == 0):
             # Save model
