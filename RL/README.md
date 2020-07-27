@@ -21,3 +21,4 @@ To execute DDQN, simply run
 python DDQN-v5.py
 ```
 The hyper-parameters should be changed in the file itself.
+If you want to run SPACE-DDQN or SPACES-DDQN, please also install the dependencies from ../VAE in the same environment as used for RL.
